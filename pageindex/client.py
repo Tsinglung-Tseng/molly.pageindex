@@ -44,6 +44,9 @@ class PageIndexClient:
 
     def index(self, file_path: str, mode: str = "auto") -> str:
         """Index a document. Returns a document_id."""
+        # Persist a canonical absolute path so workspace reloads do not
+        # reinterpret caller-relative paths against the workspace directory.
+        file_path = os.path.abspath(os.path.expanduser(file_path))
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -140,6 +143,25 @@ class PageIndexClient:
         self.documents[doc_id].pop('structure', None)
         self.documents[doc_id].pop('pages', None)
 
+    def _rebuild_meta(self) -> dict:
+        """Scan individual doc JSON files and return a meta dict."""
+        meta = {}
+        for path in self.workspace.glob("*.json"):
+            if path.name == META_INDEX:
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    doc = json.load(f)
+                entry = {k: doc[k] for k in ('type', 'doc_name', 'doc_description', 'path') if k in doc}
+                if doc.get('type') == 'pdf' and 'page_count' in doc:
+                    entry['page_count'] = doc['page_count']
+                elif doc.get('type') == 'md' and 'line_count' in doc:
+                    entry['line_count'] = doc['line_count']
+                meta[path.stem] = entry
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"Warning: skipping corrupt file {path.name}: {e}")
+        return meta
+
     def _save_meta(self, doc_id: str, entry: dict):
         meta_path = self.workspace / META_INDEX
         meta = {}
@@ -149,7 +171,7 @@ class PageIndexClient:
                     meta = json.load(f)
             except (json.JSONDecodeError, OSError) as e:
                 print(f"Warning: corrupt {META_INDEX}, rebuilding: {e}")
-                meta = {}
+                meta = self._rebuild_meta()
         meta[doc_id] = entry
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -163,29 +185,15 @@ class PageIndexClient:
                     meta = json.load(f)
             except (json.JSONDecodeError, OSError) as e:
                 print(f"Warning: corrupt {META_INDEX}, falling back to scanning JSON files: {e}")
-        if meta is not None:
-            for doc_id, entry in meta.items():
-                doc = dict(entry, id=doc_id)
-                if doc.get('path') and not os.path.isabs(doc['path']):
-                    doc['path'] = str((self.workspace / doc['path']).resolve())
-                self.documents[doc_id] = doc
-            return
-        # Fallback: scan individual JSON files (legacy or corrupt meta)
-        loaded = 0
-        for path in self.workspace.glob("*.json"):
-            if path.name == META_INDEX:
-                continue
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    doc = json.load(f)
-                if doc.get('path') and not os.path.isabs(doc['path']):
-                    doc['path'] = str((self.workspace / doc['path']).resolve())
-                self.documents[path.stem] = doc
-                loaded += 1
-            except (json.JSONDecodeError, OSError) as e:
-                print(f"Warning: skipping corrupt file {path.name}: {e}")
-        if loaded:
-            print(f"Loaded {loaded} document(s) from workspace (legacy mode).")
+        if meta is None:
+            meta = self._rebuild_meta()
+            if meta:
+                print(f"Loaded {len(meta)} document(s) from workspace (legacy mode).")
+        for doc_id, entry in meta.items():
+            doc = dict(entry, id=doc_id)
+            if doc.get('path') and not os.path.isabs(doc['path']):
+                doc['path'] = str((self.workspace / doc['path']).resolve())
+            self.documents[doc_id] = doc
 
     def _ensure_doc_loaded(self, doc_id: str):
         """Load full document JSON on demand (structure, pages, etc.)."""
