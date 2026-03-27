@@ -303,7 +303,7 @@ if __name__ == "__main__":
     
     # MD_NAME = 'Detect-Order-Construct'
     MD_NAME = 'cognitive-load'
-    MD_PATH = os.path.join(os.path.dirname(__file__), '..', 'tests/markdowns/', f'{MD_NAME}.md')
+    MD_PATH = os.path.join(os.path.dirname(__file__), '..', 'examples/documents/', f'{MD_NAME}.md')
 
 
     MODEL="gpt-4.1"
