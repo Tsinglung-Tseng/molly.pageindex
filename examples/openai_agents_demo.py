@@ -32,9 +32,10 @@ from openai.types.responses import ResponseTextDeltaEvent, ResponseReasoningSumm
 from pageindex import PageIndexClient
 import pageindex.utils as utils
 
+_EXAMPLES_DIR = os.path.dirname(os.path.abspath(__file__))
 PDF_URL = "https://arxiv.org/pdf/2603.15031"
-PDF_PATH = "tests/pdfs/attention-residuals.pdf"
-WORKSPACE = "./pageindex_workspace"
+PDF_PATH = os.path.join(_EXAMPLES_DIR, "documents", "attention-residuals.pdf")
+WORKSPACE = os.path.join(_EXAMPLES_DIR, "workspace")
 
 AGENT_SYSTEM_PROMPT = """
 You are PageIndex, a document QA assistant.
