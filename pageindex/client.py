@@ -5,10 +5,15 @@ import asyncio
 import concurrent.futures
 from pathlib import Path
 
+import PyPDF2
+
 from .page_index import page_index
 from .page_index_md import md_to_tree
 from .retrieve import get_document, get_document_structure, get_page_content
-from .utils import ConfigLoader
+from .utils import ConfigLoader, remove_fields
+
+META_INDEX = "_meta.json"
+
 
 class PageIndexClient:
     """
@@ -39,6 +44,9 @@ class PageIndexClient:
 
     def index(self, file_path: str, mode: str = "auto") -> str:
         """Index a document. Returns a document_id."""
+        # Persist a canonical absolute path so workspace reloads do not
+        # reinterpret caller-relative paths against the workspace directory.
+        file_path = os.path.abspath(os.path.expanduser(file_path))
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -58,13 +66,22 @@ class PageIndexClient:
                 if_add_node_id='yes',
                 if_add_doc_description='yes'
             )
+            # Extract per-page text so queries don't need the original PDF
+            pages = []
+            with open(file_path, 'rb') as f:
+                pdf_reader = PyPDF2.PdfReader(f)
+                for i, page in enumerate(pdf_reader.pages, 1):
+                    pages.append({'page': i, 'content': page.extract_text() or ''})
+
             self.documents[doc_id] = {
                 'id': doc_id,
-                'path': file_path,
                 'type': 'pdf',
-                'structure': result['structure'],
+                'path': file_path,
                 'doc_name': result.get('doc_name', ''),
-                'doc_description': result.get('doc_description', '')
+                'doc_description': result.get('doc_description', ''),
+                'page_count': len(pages),
+                'structure': result['structure'],
+                'pages': pages,
             }
 
         elif mode == "md" or (mode == "auto" and is_md):
@@ -87,11 +104,12 @@ class PageIndexClient:
                 result = asyncio.run(coro)
             self.documents[doc_id] = {
                 'id': doc_id,
-                'path': file_path,
                 'type': 'md',
-                'structure': result['structure'],
+                'path': file_path,
                 'doc_name': result.get('doc_name', ''),
-                'doc_description': result.get('doc_description', '')
+                'doc_description': result.get('doc_description', ''),
+                'line_count': result.get('line_count', 0),
+                'structure': result['structure'],
             }
         else:
             raise ValueError(f"Unsupported file format for: {file_path}")
@@ -102,22 +120,94 @@ class PageIndexClient:
         return doc_id
 
     def _save_doc(self, doc_id: str):
+        doc = self.documents[doc_id].copy()
+        # Strip text from structure nodes — redundant with pages (PDF only)
+        if doc.get('structure') and doc.get('type') == 'pdf':
+            doc['structure'] = remove_fields(doc['structure'], fields=['text'])
         path = self.workspace / f"{doc_id}.json"
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(self.documents[doc_id], f, ensure_ascii=False, indent=2)
+            json.dump(doc, f, ensure_ascii=False, indent=2)
+        # Update meta
+        meta_entry = {
+            'type': doc.get('type', ''),
+            'doc_name': doc.get('doc_name', ''),
+            'doc_description': doc.get('doc_description', ''),
+            'path': doc.get('path', ''),
+        }
+        if doc.get('type') == 'pdf':
+            meta_entry['page_count'] = doc.get('page_count')
+        elif doc.get('type') == 'md':
+            meta_entry['line_count'] = doc.get('line_count')
+        self._save_meta(doc_id, meta_entry)
+        # Drop heavy fields; will lazy-load on demand
+        self.documents[doc_id].pop('structure', None)
+        self.documents[doc_id].pop('pages', None)
 
-    def _load_workspace(self):
-        loaded = 0
+    def _rebuild_meta(self) -> dict:
+        """Scan individual doc JSON files and return a meta dict."""
+        meta = {}
         for path in self.workspace.glob("*.json"):
+            if path.name == META_INDEX:
+                continue
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     doc = json.load(f)
-                self.documents[path.stem] = doc
-                loaded += 1
+                entry = {k: doc[k] for k in ('type', 'doc_name', 'doc_description', 'path') if k in doc}
+                if doc.get('type') == 'pdf' and 'page_count' in doc:
+                    entry['page_count'] = doc['page_count']
+                elif doc.get('type') == 'md' and 'line_count' in doc:
+                    entry['line_count'] = doc['line_count']
+                meta[path.stem] = entry
             except (json.JSONDecodeError, OSError) as e:
-                print(f"Warning: skipping corrupt workspace file {path.name}: {e}")
-        if loaded:
-            print(f"Loaded {loaded} document(s) from workspace.")
+                print(f"Warning: skipping corrupt file {path.name}: {e}")
+        return meta
+
+    def _save_meta(self, doc_id: str, entry: dict):
+        meta_path = self.workspace / META_INDEX
+        meta = {}
+        if meta_path.exists():
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"Warning: corrupt {META_INDEX}, rebuilding: {e}")
+                meta = self._rebuild_meta()
+        meta[doc_id] = entry
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    def _load_workspace(self):
+        meta_path = self.workspace / META_INDEX
+        meta = None
+        if meta_path.exists():
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"Warning: corrupt {META_INDEX}, falling back to scanning JSON files: {e}")
+        if meta is None:
+            meta = self._rebuild_meta()
+            if meta:
+                print(f"Loaded {len(meta)} document(s) from workspace (legacy mode).")
+        for doc_id, entry in meta.items():
+            doc = dict(entry, id=doc_id)
+            if doc.get('path') and not os.path.isabs(doc['path']):
+                doc['path'] = str((self.workspace / doc['path']).resolve())
+            self.documents[doc_id] = doc
+
+    def _ensure_doc_loaded(self, doc_id: str):
+        """Load full document JSON on demand (structure, pages, etc.)."""
+        doc = self.documents.get(doc_id)
+        if not doc or doc.get('structure') is not None:
+            return
+        doc_path = self.workspace / f"{doc_id}.json"
+        if not doc_path.exists():
+            return
+        with open(doc_path, "r", encoding="utf-8") as f:
+            full = json.load(f)
+        doc['structure'] = full.get('structure', [])
+        if full.get('pages'):
+            doc['pages'] = full['pages']
 
     def get_document(self, doc_id: str) -> str:
         """Return document metadata JSON."""
@@ -125,8 +215,12 @@ class PageIndexClient:
 
     def get_document_structure(self, doc_id: str) -> str:
         """Return document tree structure JSON (without text fields)."""
+        if self.workspace:
+            self._ensure_doc_loaded(doc_id)
         return get_document_structure(self.documents, doc_id)
 
     def get_page_content(self, doc_id: str, pages: str) -> str:
         """Return page content for the given pages string (e.g. '5-7', '3,8', '12')."""
+        if self.workspace:
+            self._ensure_doc_loaded(doc_id)
         return get_page_content(self.documents, doc_id, pages)
