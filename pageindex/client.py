@@ -144,25 +144,48 @@ class PageIndexClient:
         meta_path = self.workspace / META_INDEX
         meta = {}
         if meta_path.exists():
-            with open(meta_path, "r", encoding="utf-8") as f:
-                meta = json.load(f)
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"Warning: corrupt {META_INDEX}, rebuilding: {e}")
+                meta = {}
         meta[doc_id] = entry
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
 
     def _load_workspace(self):
         meta_path = self.workspace / META_INDEX
-        if not meta_path.exists():
+        meta = None
+        if meta_path.exists():
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"Warning: corrupt {META_INDEX}, falling back to scanning JSON files: {e}")
+        if meta is not None:
+            for doc_id, entry in meta.items():
+                doc = dict(entry, id=doc_id)
+                if doc.get('path') and not os.path.isabs(doc['path']):
+                    doc['path'] = str((self.workspace / doc['path']).resolve())
+                self.documents[doc_id] = doc
             return
-        with open(meta_path, "r", encoding="utf-8") as f:
-            meta = json.load(f)
-        for doc_id, entry in meta.items():
-            doc = dict(entry, id=doc_id)
-            # Resolve relative paths
-            if doc.get('path') and not os.path.isabs(doc['path']):
-                doc['path'] = str((self.workspace / doc['path']).resolve())
-            self.documents[doc_id] = doc
-        print(f"Loaded {len(meta)} document(s) from workspace.")
+        # Fallback: scan individual JSON files (legacy or corrupt meta)
+        loaded = 0
+        for path in self.workspace.glob("*.json"):
+            if path.name == META_INDEX:
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    doc = json.load(f)
+                if doc.get('path') and not os.path.isabs(doc['path']):
+                    doc['path'] = str((self.workspace / doc['path']).resolve())
+                self.documents[path.stem] = doc
+                loaded += 1
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"Warning: skipping corrupt file {path.name}: {e}")
+        if loaded:
+            print(f"Loaded {loaded} document(s) from workspace (legacy mode).")
 
     def _ensure_doc_loaded(self, doc_id: str):
         """Load full document JSON on demand (structure, pages, etc.)."""
