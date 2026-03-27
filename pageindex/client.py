@@ -121,14 +121,6 @@ class PageIndexClient:
         # Strip text from structure nodes — redundant with pages (PDF only)
         if doc.get('structure') and doc.get('type') == 'pdf':
             doc['structure'] = remove_fields(doc['structure'], fields=['text'])
-        # Store path relative to workspace so the JSON is portable across machines
-        rel_path = None
-        if doc.get('path'):
-            try:
-                rel_path = os.path.relpath(doc['path'], self.workspace)
-                doc['path'] = rel_path
-            except ValueError:
-                pass  # On Windows, relpath fails across drives; keep absolute
         path = self.workspace / f"{doc_id}.json"
         with open(path, "w", encoding="utf-8") as f:
             json.dump(doc, f, ensure_ascii=False, indent=2)
@@ -137,7 +129,7 @@ class PageIndexClient:
             'type': doc.get('type', ''),
             'doc_name': doc.get('doc_name', ''),
             'doc_description': doc.get('doc_description', ''),
-            'path': rel_path or doc.get('path', ''),
+            'path': doc.get('path', ''),
         }
         if doc.get('type') == 'pdf':
             meta_entry['page_count'] = doc.get('page_count')
