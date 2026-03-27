@@ -14,7 +14,6 @@ Steps:
   1 — Index PDF and inspect tree structure
   2 — Inspect document metadata
   3 — Ask a question (agent auto-calls tools)
-  4 — Reload from workspace and verify persistence
 """
 import os
 import sys
@@ -27,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents import Agent, ItemHelpers, Runner, function_tool
 from agents.stream_events import RawResponsesStreamEvent, RunItemStreamEvent
-from openai.types.responses import ResponseTextDeltaEvent, ResponseReasoningSummaryTextDeltaEvent  # noqa: F401
+from openai.types.responses import ResponseTextDeltaEvent, ResponseReasoningSummaryTextDeltaEvent
 
 from pageindex import PageIndexClient
 import pageindex.utils as utils
@@ -88,7 +87,7 @@ def query_agent(
 
     async def _run():
         collected = []
-        streamed_this_turn = False
+        result = ""
         streamed_run = Runner.run_streamed(agent, prompt)
         async for event in streamed_run.stream_events():
             if isinstance(event, RawResponsesStreamEvent):
@@ -98,19 +97,20 @@ def query_agent(
                     delta = event.data.delta
                     print(delta, end="", flush=True)
                     collected.append(delta)
-                    streamed_this_turn = True
             elif isinstance(event, RunItemStreamEvent):
                 item = event.item
                 if item.type == "message_output_item":
-                    if not streamed_this_turn:
+                    if not collected:
                         text = ItemHelpers.text_message_output(item)
                         if text:
-                            print(f"{text}")
-                    streamed_this_turn = False
+                            print(text)
+                    if collected:
+                        result = "".join(collected)
                     collected.clear()
                 elif item.type == "tool_call_item":
-                    if streamed_this_turn:
+                    if collected:
                         print()  # end streaming line before tool call
+                        collected.clear()
                     raw = item.raw_item
                     args = getattr(raw, "arguments", "{}")
                     args_str = f"({args})" if verbose else ""
@@ -119,7 +119,7 @@ def query_agent(
                     output = str(item.output)
                     preview = output[:200] + "..." if len(output) > 200 else output
                     print(f"[tool output]: {preview}\n")
-        return "".join(collected)
+        return result or "".join(collected)
 
     try:
         asyncio.get_running_loop()
@@ -129,46 +129,48 @@ def query_agent(
         return asyncio.run(_run())
 
 
-# ── Download PDF if needed ─────────────────────────────────────────────────────
-if not os.path.exists(PDF_PATH):
-    print(f"Downloading {PDF_URL} ...")
-    os.makedirs(os.path.dirname(PDF_PATH), exist_ok=True)
-    with requests.get(PDF_URL, stream=True, timeout=30) as r:
-        r.raise_for_status()
-        with open(PDF_PATH, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-    print("Download complete.\n")
+if __name__ == "__main__":
+    
+    # Download PDF if needed
+    if not os.path.exists(PDF_PATH):
+        print(f"Downloading {PDF_URL} ...")
+        os.makedirs(os.path.dirname(PDF_PATH), exist_ok=True)
+        with requests.get(PDF_URL, stream=True, timeout=30) as r:
+            r.raise_for_status()
+            with open(PDF_PATH, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+        print("Download complete.\n")
 
-# ── Setup ──────────────────────────────────────────────────────────────────────
-client = PageIndexClient(workspace=WORKSPACE)
+    # Setup
+    client = PageIndexClient(workspace=WORKSPACE)
 
-# ── Step 1: Index + Tree ───────────────────────────────────────────────────────
-print("=" * 60)
-print("Step 1: Indexing PDF and inspecting tree structure")
-print("=" * 60)
-doc_id = next((did for did, doc in client.documents.items()
-                if doc.get('doc_name') == os.path.basename(PDF_PATH)), None)
-if doc_id:
-    print(f"\nLoaded cached doc_id: {doc_id}")
-else:
-    doc_id = client.index(PDF_PATH)
-    print(f"\nIndexed. doc_id: {doc_id}")
-print("\nTree Structure (top-level sections):")
-structure = json.loads(client.get_document_structure(doc_id))
-utils.print_tree(structure)
+    # Step 1: Index + Tree
+    print("=" * 60)
+    print("Step 1: Indexing PDF and inspecting tree structure")
+    print("=" * 60)
+    doc_id = next((did for did, doc in client.documents.items()
+                    if doc.get('doc_name') == os.path.basename(PDF_PATH)), None)
+    if doc_id:
+        print(f"\nLoaded cached doc_id: {doc_id}")
+    else:
+        doc_id = client.index(PDF_PATH)
+        print(f"\nIndexed. doc_id: {doc_id}")
+    print("\nTree Structure (top-level sections):")
+    structure = json.loads(client.get_document_structure(doc_id))
+    utils.print_tree(structure)
 
-# ── Step 2: Document Metadata ──────────────────────────────────────────────────
-print("\n" + "=" * 60)
-print("Step 2: Document Metadata (get_document)")
-print("=" * 60)
-print(client.get_document(doc_id))
+    # Step 2: Document Metadata
+    print("\n" + "=" * 60)
+    print("Step 2: Document Metadata (get_document)")
+    print("=" * 60)
+    print(client.get_document(doc_id))
 
-# ── Step 3: Agent Query ────────────────────────────────────────────────────────
-print("\n" + "=" * 60)
-print("Step 3: Agent Query (auto tool-use)")
-print("=" * 60)
-question = "Explain Attention Residuals in simple language."
-print(f"\nQuestion: '{question}'\n")
-query_agent(client, doc_id, question, verbose=True)
+    # Step 3: Agent Query
+    print("\n" + "=" * 60)
+    print("Step 3: Agent Query (auto tool-use)")
+    print("=" * 60)
+    question = "Explain Attention Residuals in simple language."
+    print(f"\nQuestion: '{question}'\n")
+    query_agent(client, doc_id, question, verbose=True)
