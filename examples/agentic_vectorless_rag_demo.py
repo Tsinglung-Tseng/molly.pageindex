@@ -25,6 +25,7 @@ import requests
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents import Agent, Runner, function_tool
+from agents.model_settings import ModelSettings
 from agents.stream_events import RawResponsesStreamEvent, RunItemStreamEvent
 from openai.types.responses import ResponseTextDeltaEvent, ResponseReasoningSummaryTextDeltaEvent
 
@@ -79,29 +80,49 @@ def query_agent(client: PageIndexClient, doc_id: str, prompt: str, verbose: bool
         instructions=AGENT_SYSTEM_PROMPT,
         tools=[get_document, get_document_structure, get_page_content],
         model=client.retrieve_model,
+        model_settings=ModelSettings(reasoning={"effort": "low", "summary": "auto"}),  # Optional; remove if not needed.
     )
 
     async def _run():
         streamed_run = Runner.run_streamed(agent, prompt)
+        current_stream_kind = None
         async for event in streamed_run.stream_events():
             if isinstance(event, RawResponsesStreamEvent):
                 if isinstance(event.data, ResponseReasoningSummaryTextDeltaEvent):
-                    print(event.data.delta, end="", flush=True)
+                    if current_stream_kind != "reasoning":
+                        if current_stream_kind is not None:
+                            print()
+                        print("\n[reasoning]: ", end="", flush=True)
+                    delta = event.data.delta
+                    print(delta, end="", flush=True)
+                    current_stream_kind = "reasoning"
                 elif isinstance(event.data, ResponseTextDeltaEvent):
-                    print(event.data.delta, end="", flush=True)
+                    if current_stream_kind != "text":
+                        if current_stream_kind is not None:
+                            print()
+                        print("\n[text]: ", end="", flush=True)
+                    delta = event.data.delta
+                    print(delta, end="", flush=True)
+                    current_stream_kind = "text"
             elif isinstance(event, RunItemStreamEvent):
                 item = event.item
                 if item.type == "tool_call_item":
-                    print()
+                    if current_stream_kind is not None:
+                        print()
                     raw = item.raw_item
                     args = getattr(raw, "arguments", "{}")
                     args_str = f"({args})" if verbose else ""
-                    print(f"[tool call]: {raw.name}{args_str}")
+                    print(f"\n[tool call]: {raw.name}{args_str}", flush=True)
+                    current_stream_kind = None
                 elif item.type == "tool_call_output_item" and verbose:
+                    if current_stream_kind is not None:
+                        print()
                     output = str(item.output)
                     preview = output[:200] + "..." if len(output) > 200 else output
-                    print(f"[tool output]: {preview}\n")
-        print()
+                    print(f"\n[tool call output]: {preview}", flush=True)
+                    current_stream_kind = None
+        if current_stream_kind is not None:
+            print()
         return "" if not streamed_run.final_output else str(streamed_run.final_output)
 
     try:
