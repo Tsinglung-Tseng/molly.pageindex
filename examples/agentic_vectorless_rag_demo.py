@@ -49,12 +49,7 @@ ANSWERING: Answer based only on tool output. Be concise.
 """
 
 
-def query_agent(
-    client: PageIndexClient,
-    doc_id: str,
-    prompt: str,
-    verbose: bool = False,
-) -> str:
+def query_agent(client: PageIndexClient, doc_id: str, prompt: str, verbose: bool = False) -> str:
     """Run a document QA agent using the OpenAI Agents SDK.
 
     Streams text output token-by-token and returns the full answer string.
@@ -85,51 +80,48 @@ def query_agent(
         instructions=AGENT_SYSTEM_PROMPT,
         tools=[get_document, get_document_structure, get_page_content],
         model=client.retrieve_model,
-        model_settings=ModelSettings(reasoning={"effort": "medium", "summary": "auto"}),
+        model_settings=ModelSettings(reasoning={"effort": "low", "summary": "auto"}),  # Optional; remove if not needed.
     )
 
     async def _run():
         streamed_run = Runner.run_streamed(agent, prompt)
-        line_has_streamed_text = False
         current_stream_kind = None
         async for event in streamed_run.stream_events():
             if isinstance(event, RawResponsesStreamEvent):
                 if isinstance(event.data, ResponseReasoningSummaryTextDeltaEvent):
                     if current_stream_kind != "reasoning":
-                        if line_has_streamed_text:
+                        if current_stream_kind is not None:
                             print()
-                        print("[reasoning] ", end="", flush=True)
-                        current_stream_kind = "reasoning"
-                        line_has_streamed_text = True
+                        print("\n[reasoning]: ", end="", flush=True)
                     delta = event.data.delta
                     print(delta, end="", flush=True)
-                    line_has_streamed_text = True
+                    current_stream_kind = "reasoning"
                 elif isinstance(event.data, ResponseTextDeltaEvent):
-                    if current_stream_kind == "reasoning":
-                        if line_has_streamed_text:
+                    if current_stream_kind != "text":
+                        if current_stream_kind is not None:
                             print()
-                    current_stream_kind = "text"
+                        print("\n[text]: ", end="", flush=True)
                     delta = event.data.delta
                     print(delta, end="", flush=True)
-                    line_has_streamed_text = True
+                    current_stream_kind = "text"
             elif isinstance(event, RunItemStreamEvent):
                 item = event.item
                 if item.type == "tool_call_item":
-                    if line_has_streamed_text:
-                        print()  # end streaming line before tool call
-                        line_has_streamed_text = False
-                    current_stream_kind = None
+                    if current_stream_kind is not None:
+                        print()
                     raw = item.raw_item
                     args = getattr(raw, "arguments", "{}")
                     args_str = f"({args})" if verbose else ""
-                    print(f"[tool call]: {raw.name}{args_str}")
+                    print(f"\n[tool call]: {raw.name}{args_str}", flush=True)
+                    current_stream_kind = None
                 elif item.type == "tool_call_output_item" and verbose:
+                    if current_stream_kind is not None:
+                        print()
                     output = str(item.output)
                     preview = output[:200] + "..." if len(output) > 200 else output
-                    print(f"[tool output]: {preview}\n")
-                    line_has_streamed_text = False
+                    print(f"\n[tool call output]: {preview}", flush=True)
                     current_stream_kind = None
-        if line_has_streamed_text:
+        if current_stream_kind is not None:
             print()
         return "" if not streamed_run.final_output else str(streamed_run.final_output)
 
@@ -162,8 +154,10 @@ if __name__ == "__main__":
     print("=" * 60)
     print("Step 1: Indexing PDF and inspecting tree structure")
     print("=" * 60)
-    doc_id = next((did for did, doc in client.documents.items()
-                    if doc.get('doc_name') == os.path.basename(PDF_PATH)), None)
+    doc_id = next(
+        (did for did, doc in client.documents.items() if doc.get('doc_name') == os.path.basename(PDF_PATH)),
+        None,
+    )
     if doc_id:
         print(f"\nLoaded cached doc_id: {doc_id}")
     else:
@@ -185,5 +179,5 @@ if __name__ == "__main__":
     print("Step 3: Agent Query (auto tool-use)")
     print("=" * 60)
     question = "Explain Attention Residuals in simple language."
-    print(f"\nQuestion: '{question}'\n")
+    print(f"\nQuestion: '{question}'")
     query_agent(client, doc_id, question, verbose=True)
