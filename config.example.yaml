@@ -1,0 +1,36 @@
+# PageIndex unified configuration
+# Copy this file to config.yaml and fill in your values.
+# config.yaml is git-ignored; this example is committed for reference.
+
+# ── Vault (REQUIRED, no default — missing = startup error) ──
+vault_path: ~/obsidian/MyVault       # Obsidian vault absolute path
+vault_name: MyVault                   # Used for obsidian:// deep links
+
+# ── Model (REQUIRED, no default) ──
+model: Qwen/Qwen3-32B                # Also overridable via PAGEINDEX_MODEL env var
+
+# ── Paths (optional, sensible defaults) ──
+# results_dir: ./results
+# venv_python: ./.venv/bin/python3
+# run_script: ./run_pageindex.py
+
+# ── Concurrency ──
+max_workers: 3
+
+# ── Vault scanning ──
+exclude_symlinks: []                  # Symlink directory names to skip
+
+# ── Web UI ──
+web_host: 127.0.0.1
+web_port: 7842
+
+# ── MCP Server ──
+debounce_sec: 3.0                     # File-change debounce (seconds)
+
+# ── Telegram daily report (optional) ──
+telegram:
+  enabled: false
+  # token and chat_id should go in .env as TG_TOKEN / TG_CHAT_ID
+
+# ── History ──
+# history_db: ./history.db
