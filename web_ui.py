@@ -26,18 +26,22 @@ RESULTS_DIR = settings.results_dir
 MODEL       = settings.model
 HISTORY_DB  = settings.history_db
 
-from mcp_server import search_notes_impl, find_notes_impl, _result_filename_to_note_name, RESULTS_DIR as _RESULTS_DIR
+from retrieval import search_notes_impl, find_notes_impl, _result_filename_to_note_name
+from indexing import get_result_path
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
 
-app = FastAPI(title='PageIndex')
 
-
-@app.on_event("startup")
-async def _molly_ready():
+@asynccontextmanager
+async def _lifespan(app):
     print("MOLLY_READY", flush=True)
+    yield
+
+
+app = FastAPI(title='PageIndex', lifespan=_lifespan)
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +142,7 @@ def _fast_search_impl(query: str, top_k: int = 5, model: str = None) -> str:
     if not RESULTS_DIR.exists():
         return 'Results directory does not exist. Please run batch indexing first.'
 
-    from mcp_server import _load_docs, _BM25, _tokenize
+    from retrieval import _load_docs, _BM25, _tokenize
     from pageindex.utils import ChatGPT_API
 
     docs = _load_docs(RESULTS_DIR)
@@ -222,8 +226,7 @@ def _find_md_file(name: str):
 
 def _load_structure(md_path: Path) -> list:
     try:
-        from mcp_server import get_result_filename
-        result_path = RESULTS_DIR / get_result_filename(md_path)
+        result_path = get_result_path(md_path)
         if not result_path.exists():
             return []
         with open(result_path, encoding='utf-8') as f:

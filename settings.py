@@ -160,7 +160,10 @@ def load_settings() -> Settings:
     tg_token = os.getenv('TG_TOKEN') or tg_section.get('token', '')
     tg_chat_id = os.getenv('TG_CHAT_ID') or tg_section.get('chat_id', '')
 
-    if tg_enabled:
+    # If token is absent/empty, silently disable Telegram even if enabled: true
+    if tg_enabled and (not tg_token or not tg_chat_id):
+        tg_enabled = False
+    elif tg_enabled:
         _require(tg_token, 'telegram.token', 'config.yaml or TG_TOKEN env var')
         _require(tg_chat_id, 'telegram.chat_id', 'config.yaml or TG_CHAT_ID env var')
 

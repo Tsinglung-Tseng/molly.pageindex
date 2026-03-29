@@ -6,8 +6,6 @@
 import os
 import sys
 import json
-import subprocess
-import time
 from pathlib import Path
 from datetime import datetime
 
@@ -17,13 +15,9 @@ os.chdir(PAGEINDEX_DIR)
 sys.path.insert(0, str(PAGEINDEX_DIR))
 
 from settings import settings
+from indexing import get_result_path, run_index_file, VAULT_PATH, RESULTS_DIR
 
-VAULT_PATH       = settings.vault_path
-RESULTS_DIR      = settings.results_dir
 STATE_FILE       = PAGEINDEX_DIR / '.vault_state.json'
-VENV_PYTHON      = settings.venv_python
-RUN_SCRIPT       = settings.run_script
-MODEL            = settings.model
 EXCLUDE_SYMLINKS = settings.exclude_symlinks
 MAX_WORKERS      = settings.max_workers
 
@@ -88,41 +82,15 @@ def scan_vault() -> dict:
 # Indexing
 # ---------------------------------------------------------------------------
 
-def get_result_path(rel_path: str) -> Path:
-    safe = rel_path.replace(os.sep, '__').replace(' ', '_')
-    return RESULTS_DIR / (os.path.splitext(safe)[0] + '_structure.json')
-
-
 def index_file(md_rel: str) -> tuple[str, str]:
-    md_path = VAULT_PATH / md_rel
-    result_path = get_result_path(md_rel)
-    try:
-        cmd = [
-            str(VENV_PYTHON), str(RUN_SCRIPT),
-            '--md_path', str(md_path),
-            '--model', MODEL,
-            '--if-add-node-summary', 'yes',
-        ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if r.returncode == 0:
-            # 重命名默认输出到唯一路径
-            default = RESULTS_DIR / (md_path.stem + '_structure.json')
-            if default.exists() and default != result_path:
-                result_path.parent.mkdir(parents=True, exist_ok=True)
-                if result_path.exists():
-                    result_path.unlink()
-                default.rename(result_path)
-            return ('ok', md_rel)
-        else:
-            return ('err', f'{md_rel}: {r.stderr[:200]}')
-    except subprocess.TimeoutExpired:
-        return ('err', f'{md_rel}: timeout')
-    except Exception as e:
-        return ('err', f'{md_rel}: {e}')
+    status = run_index_file(VAULT_PATH / md_rel)
+    if status == 'ok':
+        return ('ok', md_rel)
+    return ('err', f'{md_rel}: {status}')
 
 
 def remove_index(md_rel: str):
-    p = get_result_path(md_rel)
+    p = get_result_path(VAULT_PATH / md_rel)
     if p.exists():
         p.unlink()
 
@@ -169,7 +137,7 @@ def main():
         remove_index(f)
 
     # 清理孤儿索引（results/ 中存在但 vault 里已无对应文件的）
-    valid_index_names = {get_result_path(rel).name for rel in curr}
+    valid_index_names = {get_result_path(VAULT_PATH / rel).name for rel in curr}
     orphan_removed = 0
     for idx_file in RESULTS_DIR.glob('*_structure.json'):
         if idx_file.name not in valid_index_names:

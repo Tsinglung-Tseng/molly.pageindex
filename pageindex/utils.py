@@ -17,9 +17,12 @@ import yaml
 from pathlib import Path
 from types import SimpleNamespace as config
 
-# Backward compatibility: support CHATGPT_API_KEY as alias for OPENAI_API_KEY
-if not os.getenv("OPENAI_API_KEY") and os.getenv("CHATGPT_API_KEY"):
-    os.environ["OPENAI_API_KEY"] = os.getenv("CHATGPT_API_KEY")
+# Support LLM_API_KEY as alias for OPENAI_API_KEY
+if not os.getenv("OPENAI_API_KEY") and os.getenv("LLM_API_KEY"):
+    os.environ["OPENAI_API_KEY"] = os.getenv("LLM_API_KEY")
+# Support LLM_SERVICE_BASE_URL as alias for OPENAI_BASE_URL
+if not os.getenv("OPENAI_BASE_URL") and os.getenv("LLM_SERVICE_BASE_URL"):
+    os.environ["OPENAI_BASE_URL"] = os.getenv("LLM_SERVICE_BASE_URL")
 
 litellm.drop_params = True
 
