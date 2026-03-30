@@ -6,12 +6,13 @@
 
 ## 相较原版的改动
 
-- **SiliconFlow API**：对接 SiliconFlow，支持 Qwen 系列模型（`LLM_API_KEY` 或原生 `OPENAI_API_KEY` 均可）
+- **SiliconFlow API**：对接 SiliconFlow，支持 Qwen 系列模型
 - **MCP Server**：后台 watchdog 自动索引 + `search_notes` / `grep_notes` 工具
 - **Web UI**：本地搜索界面，支持 AI 问答、搜索历史（SQLite 持久化）、sidebar tab 状态持久化
 - **深链接**：搜索结果直接跳转到对应标题锚点（`obsidian://` deep link）
 - **并行检索**：多文档 Stage 2 并行加速，显著降低搜索延迟
-- **每日 Vault 报告**：扫描 Vault 变更，通过 Telegram 推送每日摘要
+- **增量索引 + Telegram 日报**：每日定时扫描 Vault 变更，发送 Telegram 摘要；首次运行自动对根目录文件建立初始索引
+- **Vault 隔离存储**：results / state / history 均按 vault_name 隔离，支持多 vault 并存；结果写入 `results/<vault_name>/`
 
 ## 安装
 
@@ -19,101 +20,95 @@
 uv sync
 ```
 
+## 配置
+
+所有配置在 `config.yaml`（从 `config.example.yaml` 复制，已加入 `.gitignore`）：
+
+```yaml
+llm_api_key: "sk-..."
+llm_base_url: https://api.siliconflow.cn/v1
+model: Qwen/Qwen3.5-35B-A3B
+
+vault_path: ~/obsidian/MyVault   # 不通过 Molly 运行时填写
+
+telegram:
+  enabled: true
+  token: ""
+  chat_id: ""
+```
+
 ## 在 Molly 中配置
 
-本项目作为 Molly 的托管子服务运行，配置和启动由 Molly 框架负责。需注册两个独立进程。
+本项目作为 Molly 的托管子服务运行。需注册两个独立进程。
 
 ### 服务一：Note Indexer (web)
 
 | 字段 | 值 |
 |------|----|
-| 启动命令 | `.venv/bin/python3 web_ui.py` |
-| Ready 信号 | stdout 出现 `MOLLY_READY` |
+| 启动命令 | `uv run python main.py --host 127.0.0.1 --port 7842` |
 
 ### 服务二：Note Indexer (mcp)
 
 | 字段 | 值 |
 |------|----|
-| 启动命令 | `.venv/bin/python3 mcp_server.py` |
-| Ready 信号 | stderr 出现 `PageIndex MCP server starting` |
+| 启动命令 | `.venv/bin/python mcp_server.py` |
 
-> **两个服务共用同一份环境变量，配置一次即可。**
+### Molly 注入的环境变量
 
-### 环境变量
+| 变量 | 说明 |
+|------|------|
+| `MOLLY_VAULT_PATH` | Vault 根目录绝对路径（必填） |
+| `MOLLY_LLM_MODEL` | 模型名，覆盖 config.yaml |
+| `MOLLY_LLM_API_KEY` | API Key，覆盖 config.yaml |
+| `MOLLY_LLM_API_URL` | Base URL，覆盖 config.yaml |
 
-| 变量 | 必填 | 说明 |
-|------|:----:|------|
-| `VAULT_PATH` | ✅ | Obsidian Vault 根目录绝对路径 |
-| `VAULT_NAME` | ✅ | Vault 名称，用于 `obsidian://` 深链接 |
-| `LLM_API_KEY` | ✅ | SiliconFlow API Key（或用原生 `OPENAI_API_KEY`，二选一） |
-| `LLM_SERVICE_BASE_URL` | ✅ | `https://api.siliconflow.cn/v1` |
-| `PAGEINDEX_MODEL` | | 默认 `Qwen/Qwen3-32B` |
-| `WEB_HOST` | | 默认 `127.0.0.1` |
-| `WEB_PORT` | | 默认 `7842` |
-| `RESULTS_DIR` | | 索引结果目录，默认 `<项目目录>/results` |
-| `MAX_WORKERS` | | 并行索引线程数，默认 `3` |
-| `TG_TOKEN` | | Telegram Bot Token，留空则自动禁用日报 |
-| `TG_CHAT_ID` | | Telegram Chat ID |
-
-### 注意事项
-
-1. 两个服务共用同一个 `RESULTS_DIR`，不要配置成不同路径
-2. 服务一（web）只读索引，不监控文件变化
-3. 服务二（mcp）负责监控 vault 目录、自动触发索引，以及 Claude Code 的 `search_notes` / `grep_notes` 工具
-4. `VAULT_PATH` 是 Vault 根目录的绝对路径，不是子目录
-5. `TG_TOKEN` / `TG_CHAT_ID` 留空或不注入时，Telegram 日报自动禁用，不报错
+其余配置（端口、并发数、TG 等）在 `config.yaml` 中设置。
 
 ## 独立运行
 
-不通过 Molly 直接运行时，在项目根目录创建 `.env` 文件（已加入 `.gitignore`）：
-
-```env
-VAULT_PATH=/path/to/your/vault
-VAULT_NAME=MyVault
-LLM_API_KEY=your_key
-LLM_SERVICE_BASE_URL=https://api.siliconflow.cn/v1
-PAGEINDEX_MODEL=Qwen/Qwen3-32B
-```
+直接在项目目录下运行，确保 `config.yaml` 已配置 `vault_path`：
 
 ```bash
-# Web UI（http://127.0.0.1:7842）
-bash start_web.sh
+# Supervisor（Web UI + 每日定时索引）
+uv run python main.py
 
 # MCP Server（供 Claude Code 调用）
 uv run python mcp_server.py
 
-# 每日报告（手动触发）
-uv run python daily_report.py
-
-# 批量索引整个 Vault
+# 手动触发增量索引（首次运行：对根目录文件建立初始索引；后续：只处理变更文件）
 uv run python batch_index.py
 
-# 手动索引单个文件（结果写入 ./results/<basename>_structure.json）
-uv run python run_pageindex.py --md_path /path/to/note.md
+# 批量索引调试（MCP Inspector）
+npx @modelcontextprotocol/inspector \
+  .venv/bin/python mcp_server.py
 ```
 
 ## 注册为 MCP Server（Claude Code）
 
-在 Claude Code 的 `settings.json` 中添加：
+在 `~/.claude/settings.json` 中添加：
 
 ```json
 {
   "mcpServers": {
     "pageindex": {
       "command": "/path/to/molly.pageindex/.venv/bin/python",
-      "args": ["/path/to/molly.pageindex/mcp_server.py"],
-      "env": {
-        "VAULT_PATH": "/path/to/your/vault",
-        "VAULT_NAME": "MyVault",
-        "LLM_API_KEY": "your_key",
-        "LLM_SERVICE_BASE_URL": "https://api.siliconflow.cn/v1"
-      }
+      "args": ["/path/to/molly.pageindex/mcp_server.py"]
     }
   }
 }
 ```
 
-注册后可在 Claude Code 中直接调用 `search_notes`、`find_notes` 和 `grep_notes`。
+注册后可在 Claude Code 中直接调用 `search_notes`、`find_notes`、`grep_notes`。
+
+## 数据目录（Vault 隔离）
+
+| 数据 | 路径 |
+|------|------|
+| 索引结果 | `results/<vault_name>/` |
+| 状态快照 | `.vault_state_<vault_name>.json` |
+| 历史数据库 | `history_<vault_name>.db` |
+
+切换 vault 只需改 `MOLLY_VAULT_PATH`，数据自动隔离。
 
 ## 原版说明
 
