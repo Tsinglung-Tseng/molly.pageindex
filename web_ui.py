@@ -29,6 +29,12 @@ RESULTS_DIR = settings.results_dir
 MODEL       = settings.model
 HISTORY_DB  = settings.history_db
 
+# Propagate LLM credentials to env vars that litellm reads
+if settings.llm_api_key and not os.environ.get('OPENAI_API_KEY'):
+    os.environ['OPENAI_API_KEY'] = settings.llm_api_key
+if settings.llm_base_url and not os.environ.get('OPENAI_BASE_URL'):
+    os.environ['OPENAI_BASE_URL'] = settings.llm_base_url
+
 from retrieval import search_notes_impl, find_notes_impl, _result_filename_to_note_name
 from indexing import get_result_path
 
@@ -146,7 +152,7 @@ def _fast_search_impl(query: str, top_k: int = 5, model: str = None) -> str:
         return 'Results directory does not exist. Please run batch indexing first.'
 
     from retrieval import _load_docs, _BM25, _tokenize
-    from pageindex.utils import ChatGPT_API
+    from pageindex.utils import llm_completion as ChatGPT_API
 
     docs = _load_docs(RESULTS_DIR)
     if not docs:

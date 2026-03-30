@@ -25,6 +25,7 @@ if not os.getenv("OPENAI_BASE_URL") and os.getenv("LLM_SERVICE_BASE_URL"):
     os.environ["OPENAI_BASE_URL"] = os.getenv("LLM_SERVICE_BASE_URL")
 
 litellm.drop_params = True
+litellm.suppress_debug_info = True
 
 def count_tokens(text, model=None):
     if not text:
@@ -35,6 +36,11 @@ def count_tokens(text, model=None):
 def llm_completion(model, prompt, chat_history=None, return_finish_reason=False):
     if model:
         model = model.removeprefix("litellm/")
+        # For custom OpenAI-compatible endpoints (e.g. SiliconFlow), litellm needs
+        # the 'openai/' provider prefix to route correctly
+        base_url = os.getenv("OPENAI_BASE_URL", "")
+        if base_url and "openai.com" not in base_url and not model.startswith("openai/"):
+            model = "openai/" + model
     max_retries = 10
     messages = list(chat_history) + [{"role": "user", "content": prompt}] if chat_history else [{"role": "user", "content": prompt}]
     for i in range(max_retries):
@@ -45,6 +51,9 @@ def llm_completion(model, prompt, chat_history=None, return_finish_reason=False)
                 temperature=0,
             )
             content = response.choices[0].message.content
+            # Qwen3 thinking models may return content=None with answer in reasoning_content
+            if not content:
+                content = getattr(response.choices[0].message, 'reasoning_content', None) or ''
             if return_finish_reason:
                 finish_reason = "max_output_reached" if response.choices[0].finish_reason == "length" else "finished"
                 return content, finish_reason
@@ -65,6 +74,9 @@ def llm_completion(model, prompt, chat_history=None, return_finish_reason=False)
 async def llm_acompletion(model, prompt):
     if model:
         model = model.removeprefix("litellm/")
+        base_url = os.getenv("OPENAI_BASE_URL", "")
+        if base_url and "openai.com" not in base_url and not model.startswith("openai/"):
+            model = "openai/" + model
     max_retries = 10
     messages = [{"role": "user", "content": prompt}]
     for i in range(max_retries):

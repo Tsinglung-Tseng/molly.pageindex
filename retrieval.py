@@ -137,7 +137,7 @@ def search_notes_impl(query: str, top_k: int = 5, model: str = None, lang: str =
         return 'No documents matched the query.'
 
     # Stage 2: LLM tree search
-    from pageindex.utils import ChatGPT_API, extract_json
+    from pageindex.utils import llm_completion as ChatGPT_API, extract_json
 
     def get_node_map(tree):
         mapping = {}
