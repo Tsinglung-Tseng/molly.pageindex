@@ -58,18 +58,12 @@ def run_index_file(md_path: Path, model: str = None) -> str:
             str(VENV_PYTHON), str(RUN_SCRIPT),
             '--md_path', str(md_path),
             '--model', model,
+            '--output_dir', str(RESULTS_DIR),
             '--if-add-node-summary', 'yes',
         ]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if proc.returncode != 0:
-            return f'error: {proc.stderr[:200]}'
-
-        # run_pageindex saves to results/<basename>_structure.json; rename to unique path
-        default_path = RESULTS_DIR / (md_path.stem + '_structure.json')
-        if default_path.exists() and default_path != result_path:
-            if result_path.exists():
-                result_path.unlink()
-            default_path.rename(result_path)
+            return f'error: {proc.stderr.strip()}'
 
         return 'ok'
     except subprocess.TimeoutExpired:

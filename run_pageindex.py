@@ -1,6 +1,16 @@
 import argparse
 import os
+import sys
 import json
+from pathlib import Path
+
+# Load project settings and inject LLM API env vars before pageindex initializes
+sys.path.insert(0, str(Path(__file__).parent.resolve()))
+from settings import settings
+os.environ.setdefault('OPENAI_API_KEY', settings.llm_api_key)
+os.environ.setdefault('CHATGPT_API_KEY', settings.llm_api_key)
+os.environ.setdefault('OPENAI_BASE_URL', settings.llm_base_url)
+
 from pageindex import *
 from pageindex.page_index_md import md_to_tree
 from pageindex.utils import ConfigLoader
@@ -30,6 +40,8 @@ if __name__ == "__main__":
                       help='Whether to add text to the node')
                       
     # Markdown specific arguments
+    parser.add_argument('--output_dir', type=str, default='./results',
+                      help='Directory to write *_structure.json output')
     parser.add_argument('--if-thinning', type=str, default='no',
                       help='Whether to apply tree thinning for markdown (markdown only)')
     parser.add_argument('--thinning-threshold', type=int, default=5000,
@@ -70,7 +82,7 @@ if __name__ == "__main__":
         
         # Save results
         pdf_name = os.path.splitext(os.path.basename(args.pdf_path))[0]    
-        output_dir = './results'
+        output_dir = args.output_dir
         output_file = f'{output_dir}/{pdf_name}_structure.json'
         os.makedirs(output_dir, exist_ok=True)
         
@@ -124,7 +136,7 @@ if __name__ == "__main__":
         
         # Save results
         md_name = os.path.splitext(os.path.basename(args.md_path))[0]    
-        output_dir = './results'
+        output_dir = args.output_dir
         output_file = f'{output_dir}/{md_name}_structure.json'
         os.makedirs(output_dir, exist_ok=True)
         
