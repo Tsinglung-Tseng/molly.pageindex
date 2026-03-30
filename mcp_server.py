@@ -24,11 +24,74 @@ PageIndex MCP Server
 import os
 import re
 import sys
+import select
+import time
 import logging
 import queue
 import threading
 from pathlib import Path
 from threading import Timer
+
+
+# ---------------------------------------------------------------------------
+# Parent-death detection: exit when ANY ancestor dies
+# ---------------------------------------------------------------------------
+
+
+def _get_ppid_of(pid: int) -> int:
+    import subprocess
+    try:
+        return int(subprocess.check_output(
+            ['ps', '-o', 'ppid=', '-p', str(pid)],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip())
+    except Exception:
+        return 0
+
+
+def _collect_ancestors() -> list[int]:
+    chain = []
+    pid = os.getppid()
+    seen = set()
+    while pid > 1 and pid not in seen:
+        chain.append(pid)
+        seen.add(pid)
+        pid = _get_ppid_of(pid)
+    return chain
+
+
+def _watch_parent():
+    ancestors = _collect_ancestors()
+    if not ancestors:
+        os._exit(0)
+    if sys.platform == 'darwin':
+        try:
+            kq = select.kqueue()
+            events = [
+                select.kevent(
+                    pid,
+                    filter=select.KQ_FILTER_PROC,
+                    flags=select.KQ_EV_ADD,
+                    fflags=select.KQ_NOTE_EXIT,
+                )
+                for pid in ancestors
+            ]
+            kq.control(events, 0)
+            kq.control(None, 1)
+            os._exit(0)
+        except OSError:
+            pass
+    while True:
+        time.sleep(1)
+        for pid in ancestors:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                os._exit(0)
+            except PermissionError:
+                pass
+
+threading.Thread(target=_watch_parent, daemon=True).start()
 
 # --- 统一配置 ---
 PAGEINDEX_DIR = Path(__file__).parent.resolve()

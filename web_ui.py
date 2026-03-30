@@ -17,24 +17,6 @@ import threading
 from pathlib import Path
 from urllib.parse import quote
 
-
-# ---------------------------------------------------------------------------
-# Parent-death detection: exit when Molly (parent) dies
-# ---------------------------------------------------------------------------
-
-def _watch_parent():
-    """Background thread: exit when parent process dies (PPID becomes 1/launchd)."""
-    parent_pid = os.getppid()
-    while True:
-        time.sleep(2)
-        if os.getppid() != parent_pid:
-            print(f"Parent process {parent_pid} died (ppid now {os.getppid()}), exiting.",
-                  flush=True)
-            os.kill(os.getpid(), signal.SIGTERM)
-            break
-
-threading.Thread(target=_watch_parent, daemon=True).start()
-
 PAGEINDEX_DIR = Path(__file__).parent.resolve()
 os.chdir(PAGEINDEX_DIR)
 sys.path.insert(0, str(PAGEINDEX_DIR))

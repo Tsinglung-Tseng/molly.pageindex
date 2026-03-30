@@ -82,6 +82,9 @@ class Settings:
     tg_token: str
     tg_chat_id: str
 
+    # -- schedule --
+    schedule_time: str          # HH:MM for daily batch index
+
     # -- history --
     history_db: Path
 
@@ -167,6 +170,9 @@ def load_settings() -> Settings:
         _require(tg_token, 'telegram.token', 'config.yaml or TG_TOKEN env var')
         _require(tg_chat_id, 'telegram.chat_id', 'config.yaml or TG_CHAT_ID env var')
 
+    # -- schedule --
+    schedule_time = os.getenv('SCHEDULE_TIME') or cfg.get('schedule_time', '03:00')
+
     # -- history --
     history_db = Path(cfg.get('history_db', str(PROJECT_DIR / 'history.db')))
     if not history_db.is_absolute():
@@ -188,6 +194,7 @@ def load_settings() -> Settings:
         tg_enabled=tg_enabled,
         tg_token=tg_token,
         tg_chat_id=tg_chat_id,
+        schedule_time=schedule_time,
         history_db=history_db,
     )
 
