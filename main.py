@@ -168,6 +168,7 @@ def main():
     from web_ui import app
 
     print(f"\n  PageIndex Supervisor")
+    print(f"  Vault    →  {settings.vault_path}")
     print(f"  Web UI  →  http://{args.host}:{args.port}")
     print(f"  Schedule →  daily at {settings.schedule_time}\n", flush=True)
 

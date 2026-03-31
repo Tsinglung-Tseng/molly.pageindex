@@ -17,12 +17,11 @@ parts/*
 json_results/*
 results/
 .claude/
-.vault_state.json
+.vault_state_*.json
 tests/results/
 tests/pdfs/
-*.log
-history.db
-mcp_server.log
-daily_report.log
+history_*.db
 docs/
 rpg-pgidx-gitlog.txt
+uv.lock
+*.log

@@ -6,8 +6,12 @@
 vault_path: ~/obsidian/MyVault       # Obsidian vault absolute path
 vault_name: MyVault                   # Used for obsidian:// deep links
 
+# ── LLM API (REQUIRED) ──
+llm_api_key: ""                       # OpenAI-compatible API key
+llm_base_url: https://api.siliconflow.cn/v1
+
 # ── Model (REQUIRED, no default) ──
-model: Qwen/Qwen3-32B                # Also overridable via PAGEINDEX_MODEL env var
+model: Qwen/Qwen3.5-35B-A3B          # Also overridable via PAGEINDEX_MODEL env var
 
 # ── Paths (optional, sensible defaults) ──
 # results_dir: ./results
@@ -29,8 +33,9 @@ debounce_sec: 3.0                     # File-change debounce (seconds)
 
 # ── Telegram daily report (optional) ──
 telegram:
-  enabled: false
-  # token and chat_id should go in .env as TG_TOKEN / TG_CHAT_ID
+  enabled: true
+  token: ""      # Bot token from @BotFather
+  chat_id: ""    # Target chat/user ID
 
 # ── History ──
 # history_db: ./history.db

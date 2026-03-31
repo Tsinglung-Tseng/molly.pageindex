@@ -88,6 +88,10 @@ class Settings:
     # -- history --
     history_db: Path
 
+    # -- llm api --
+    llm_api_key: str
+    llm_base_url: str
+
 
 # ---------------------------------------------------------------------------
 # Loader
@@ -113,20 +117,21 @@ def load_settings() -> Settings:
     cfg = _load_yaml()
 
     # -- vault (REQUIRED) --
-    vault_path_raw = os.getenv('VAULT_PATH') or cfg.get('vault_path')
+    # Priority: MOLLY_VAULT_PATH (injected by Molly) > VAULT_PATH > config.yaml
+    vault_path_raw = os.getenv('MOLLY_VAULT_PATH') or os.getenv('VAULT_PATH') or cfg.get('vault_path')
     _require(vault_path_raw, 'vault_path')
     vault_path = Path(vault_path_raw).expanduser().resolve()
 
-    vault_name = os.getenv('VAULT_NAME') or cfg.get('vault_name')
-    _require(vault_name, 'vault_name')
+    # vault_name: derived from path if not explicitly set
+    vault_name = os.getenv('VAULT_NAME') or cfg.get('vault_name') or vault_path.name
 
     # -- model (REQUIRED) --
-    model = os.getenv('PAGEINDEX_MODEL') or cfg.get('model')
+    model = os.getenv('MOLLY_LLM_MODEL') or os.getenv('PAGEINDEX_MODEL') or cfg.get('model')
     _require(model, 'model')
 
-    # -- paths (sensible defaults relative to project) --
+    # -- paths (sensible defaults relative to project, vault-scoped) --
     results_dir = Path(
-        os.getenv('RESULTS_DIR') or cfg.get('results_dir', str(PROJECT_DIR / 'results'))
+        os.getenv('RESULTS_DIR') or cfg.get('results_dir', str(PROJECT_DIR / 'results' / vault_name))
     )
     if not results_dir.is_absolute():
         results_dir = PROJECT_DIR / results_dir
@@ -159,7 +164,7 @@ def load_settings() -> Settings:
 
     # -- telegram --
     tg_section = cfg.get('telegram', {}) or {}
-    tg_enabled = tg_section.get('enabled', False)
+    tg_enabled = tg_section.get('enabled', True)
     tg_token = os.getenv('TG_TOKEN') or tg_section.get('token', '')
     tg_chat_id = os.getenv('TG_CHAT_ID') or tg_section.get('chat_id', '')
 
@@ -174,9 +179,13 @@ def load_settings() -> Settings:
     schedule_time = os.getenv('SCHEDULE_TIME') or cfg.get('schedule_time', '03:00')
 
     # -- history --
-    history_db = Path(cfg.get('history_db', str(PROJECT_DIR / 'history.db')))
+    history_db = Path(cfg.get('history_db', str(PROJECT_DIR / f'history_{vault_name}.db')))
     if not history_db.is_absolute():
         history_db = PROJECT_DIR / history_db
+
+    # -- llm api --
+    llm_api_key = os.getenv('MOLLY_LLM_API_KEY') or os.getenv('OPENAI_API_KEY') or os.getenv('CHATGPT_API_KEY') or cfg.get('llm_api_key', '')
+    llm_base_url = os.getenv('MOLLY_LLM_API_URL') or os.getenv('OPENAI_BASE_URL') or cfg.get('llm_base_url', 'https://api.openai.com/v1')
 
     return Settings(
         project_dir=PROJECT_DIR,
@@ -196,6 +205,8 @@ def load_settings() -> Settings:
         tg_chat_id=tg_chat_id,
         schedule_time=schedule_time,
         history_db=history_db,
+        llm_api_key=llm_api_key,
+        llm_base_url=llm_base_url,
     )
 
 
