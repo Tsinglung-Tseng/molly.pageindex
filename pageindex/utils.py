@@ -59,7 +59,7 @@ def llm_completion(model, prompt, chat_history=None, return_finish_reason=False)
                 return content, finish_reason
             return content
         except Exception as e:
-            print('************* Retrying *************')
+            logging.warning('************* Retrying *************')
             logging.error(f"Error: {e}")
             if i < max_retries - 1:
                 time.sleep(1)
@@ -88,7 +88,7 @@ async def llm_acompletion(model, prompt):
             )
             return response.choices[0].message.content
         except Exception as e:
-            print('************* Retrying *************')
+            logging.warning('************* Retrying *************')
             logging.error(f"Error: {e}")
             if i < max_retries - 1:
                 await asyncio.sleep(1)

@@ -34,6 +34,22 @@ from threading import Timer
 
 
 # ---------------------------------------------------------------------------
+# Protect stdio transport: redirect print() to stderr so that stray print()
+# from imported libraries cannot corrupt the JSON-RPC stream.
+# FastMCP uses sys.stdout.buffer directly, so we cannot redirect sys.stdout
+# itself — instead we override builtins.print.
+# ---------------------------------------------------------------------------
+import builtins
+_builtin_print = builtins.print
+
+def _safe_print(*args, **kwargs):
+    kwargs.setdefault('file', sys.stderr)
+    return _builtin_print(*args, **kwargs)
+
+builtins.print = _safe_print
+
+
+# ---------------------------------------------------------------------------
 # Parent-death detection: exit when ANY ancestor dies
 # ---------------------------------------------------------------------------
 
